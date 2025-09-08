@@ -1,0 +1,981 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RentFlow</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Leaflet CSS for the map -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha2d-dof0d/6E/J1lM1c8/k5l+6j7j4Lw+9dJ7+3n0a6l+1g==" crossorigin="" />
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+
+        #map {
+            height: 100%;
+            width: 100%;
+        }
+
+        .modal-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .saved-properties-btn {
+            background-color: #6366f1;
+            color: white;
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-weight: 500;
+            transition: background-color 0.2s;
+        }
+
+        #loadingOverlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(255, 255, 255, 0.9);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+            flex-direction: column;
+        }
+    </style>
+</head>
+
+<body class="bg-gray-100">
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay">
+        <div class="text-center">
+            <h2 class="text-2xl font-bold text-gray-800">RentFlow</h2>
+            <p id="loadingStatus" class="mt-2 text-gray-600">Connecting to services...</p>
+        </div>
+    </div>
+
+    <!-- Main Application Container -->
+    <header class="bg-white shadow-md p-4 flex justify-between items-center sticky top-0 z-50">
+        <h1 class="text-2xl font-bold text-indigo-600">RentFlow</h1>
+        <div class="flex items-center space-x-2 md:space-x-4">
+            <span id="userStatus" class="text-gray-600 text-sm hidden"></span>
+            <button id="authButton"
+                class="bg-indigo-500 text-white font-semibold py-2 px-4 rounded-lg shadow-md hover:bg-indigo-600 transition-colors">Log
+                In / Sign Up</button>
+            <button id="membershipButton"
+                class="bg-green-500 text-white font-semibold py-2 px-4 rounded-lg shadow-md hover:bg-green-600 transition-colors hidden">Membership</button>
+            <button id="savedPropertiesButton" class="saved-properties-btn hidden">Saved</button>
+            <button id="alertsButton" class="saved-properties-btn hidden">Alerts</button>
+        </div>
+    </header>
+
+    <main class="flex flex-col md:flex-row" style="height: calc(100vh - 68px);">
+        <!-- Left Panel (Scrollable) -->
+        <div class="w-full md:w-2/5 lg:w-1/3 p-4 overflow-y-auto">
+            <div class="flex-1 flex flex-col">
+                <h2 class="text-2xl font-bold text-gray-800 mb-2">Property Listings</h2>
+                <p class="text-gray-500 mb-6">Find your next investment property.</p>
+
+                <!-- Filters -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+                    <div>
+                        <label for="bedrooms" class="block text-sm font-medium text-gray-700">Bedrooms</label>
+                        <select id="bedrooms"
+                            class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border bg-white">
+                            <option value="all">Any</option>
+                            <option value="2">2+</option>
+                            <option value="3" selected>3+</option>
+                            <option value="4">4+</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="bathrooms" class="block text-sm font-medium text-gray-700">Bathrooms</label>
+                        <select id="bathrooms"
+                            class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border bg-white">
+                            <option value="all">Any</option>
+                            <option value="1">1+</option>
+                            <option value="2" selected>2+</option>
+                            <option value="3">3+</option>
+                        </select>
+                    </div>
+                    <div class="sm:col-span-2">
+                        <label for="propertyType" class="block text-sm font-medium text-gray-700">Property Type</label>
+                        <select id="propertyType"
+                            class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border bg-white">
+                            <option value="all">Any</option>
+                            <option value="house" selected>House</option>
+                            <option value="apartment">Apartment</option>
+                            <option value="townhouse">Townhouse</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Property List -->
+                <div id="propertyList" class="space-y-4 overflow-y-auto flex-grow pr-2">
+                    <!-- Properties will be dynamically added here -->
+                </div>
+
+                <!-- Loading & Message Box -->
+                <div id="messageBox" class="mt-6 p-4 rounded-lg text-sm text-gray-800 hidden" role="alert"></div>
+            </div>
+        </div>
+
+        <!-- Right Panel (Map) -->
+        <div class="w-full md:w-3/5 lg:w-2/3 flex flex-col">
+            <div id="map-container" class="flex-grow relative">
+                <div id="map" class="absolute inset-0"></div>
+                <div class="absolute bottom-4 left-4 right-4 bg-white/90 p-4 rounded-xl shadow-lg space-y-2 z-[1000]">
+                    <h2 class="text-lg font-semibold text-gray-700">Summary for Shown Properties</h2>
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div class="p-2 bg-gray-50 rounded-lg">
+                            <h3 class="text-xs font-semibold text-gray-600">Price Range</h3>
+                            <p class="text-sm font-bold text-gray-800"><span id="priceRangeLow">N/A</span> to <span
+                                    id="priceRangeHigh">N/A</span></p>
+                        </div>
+                        <div class="p-2 bg-gray-50 rounded-lg">
+                            <h3 class="text-xs font-semibold text-gray-600">Rent Range</h3>
+                            <p class="text-sm font-bold text-gray-800"><span id="rentRangeLow">N/A</span> to <span
+                                    id="rentRangeHigh">N/A</span></p>
+                        </div>
+                        <div class="p-2 bg-gray-50 rounded-lg">
+                            <h3 class="text-xs font-semibold text-gray-600">Gearing Insights</h3>
+                            <p class="text-sm font-bold text-gray-800"><span id="gearingInsights">No data
+                                    available.</span></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="p-4 bg-white border-t">
+                <label for="interestRate" class="block text-sm font-medium text-gray-700">Current Interest Rate
+                    (%)</label>
+                <input type="number" id="interestRate" value="6.5" step="0.1"
+                    class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 p-2 border">
+            </div>
+        </div>
+    </main>
+
+    <!-- Login/Signup Modal -->
+    <div id="authModal" class="modal-container hidden">
+        <div class="bg-white p-8 rounded-xl shadow-2xl max-w-md w-full">
+            <h2 class="text-2xl font-bold text-gray-800 mb-4 text-center">Log In / Sign Up</h2>
+            <form id="authForm" class="space-y-4">
+                <div>
+                    <label for="email" class="block text-sm font-medium text-gray-700">Email</label>
+                    <input type="email" id="email" required
+                        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border focus:border-indigo-500 focus:ring-indigo-500">
+                </div>
+                <div>
+                    <label for="password" class="block text-sm font-medium text-gray-700">Password</label>
+                    <input type="password" id="password" required
+                        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border focus:border-indigo-500 focus:ring-indigo-500">
+                </div>
+                <div class="flex space-x-4">
+                    <button type="button" id="loginButton"
+                        class="w-full bg-indigo-500 text-white font-semibold py-2 rounded-lg shadow-md hover:bg-indigo-600 transition-colors">Log
+                        In</button>
+                    <button type="button" id="signupButton"
+                        class="w-full bg-indigo-500 text-white font-semibold py-2 rounded-lg shadow-md hover:bg-indigo-600 transition-colors">Sign
+                        Up</button>
+                </div>
+            </form>
+            <p id="authError" class="mt-4 text-center text-red-500"></p>
+            <button id="closeAuthModal"
+                class="mt-4 w-full text-gray-500 py-2 rounded-lg hover:bg-gray-100 transition-colors">Close</button>
+        </div>
+    </div>
+
+    <!-- Membership Modal -->
+    <div id="membershipModal" class="modal-container hidden">
+        <div class="bg-white p-8 rounded-xl shadow-2xl max-w-2xl w-full">
+            <h2 class="text-2xl font-bold text-gray-800 mb-6 text-center">Choose Your Plan</h2>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <!-- Basic Tier -->
+                <div class="p-6 border border-gray-200 rounded-xl text-center flex flex-col items-center">
+                    <h3 class="text-lg font-bold text-gray-800">Basic</h3>
+                    <p class="text-4xl font-extrabold text-gray-900 my-2">$0<span
+                            class="text-lg font-medium text-gray-500">/mo</span></p>
+                    <p class="text-sm text-gray-500">For casual investors</p>
+                    <ul class="text-left text-sm text-gray-600 my-4 list-disc list-inside">
+                        <li>Interactive Map</li>
+                        <li>Property Filtering</li>
+                        <li>Gearing Analysis</li>
+                    </ul>
+                    <button id="basicPlanBtn"
+                        class="mt-auto w-full bg-gray-200 text-gray-600 font-semibold py-2 rounded-lg cursor-not-allowed">Current
+                        Plan</button>
+                </div>
+                <!-- Pro Tier -->
+                <div class="p-6 border-2 border-indigo-500 rounded-xl text-center flex flex-col items-center relative">
+                    <span
+                        class="absolute top-0 right-0 -mt-3 -mr-3 px-3 py-1 bg-indigo-500 text-white text-xs font-bold uppercase rounded-full">Most
+                        Popular</span>
+                    <h3 class="text-lg font-bold text-gray-800">Pro</h3>
+                    <p class="text-4xl font-extrabold text-gray-900 my-2">$19.99<span
+                            class="text-lg font-medium text-gray-500">/mo</span></p>
+                    <p class="text-sm text-gray-500">For serious investors</p>
+                    <ul class="text-left text-sm text-gray-600 my-4 list-disc list-inside">
+                        <li>Everything in Basic</li>
+                        <li>Save up to 10 properties</li>
+                        <li>Detailed investment insights</li>
+                    </ul>
+                    <button id="proPlanBtn"
+                        class="mt-auto w-full bg-indigo-500 text-white font-semibold py-2 rounded-lg shadow-md hover:bg-indigo-600 transition-colors">Upgrade
+                        to Pro</button>
+                </div>
+                <!-- Premium Tier -->
+                <div class="p-6 border border-gray-200 rounded-xl text-center flex flex-col items-center">
+                    <h3 class="text-lg font-bold text-gray-800">Premium</h3>
+                    <p class="text-4xl font-extrabold text-gray-900 my-2">$49.99<span
+                            class="text-lg font-medium text-gray-500">/mo</span></p>
+                    <p class="text-sm text-gray-500">For professionals</p>
+                    <ul class="text-left text-sm text-gray-600 my-4 list-disc list-inside">
+                        <li>Everything in Pro</li>
+                        <li>Unlimited saved properties</li>
+                        <li>Advanced market trends</li>
+                    </ul>
+                    <button id="premiumPlanBtn"
+                        class="mt-auto w-full bg-indigo-500 text-white font-semibold py-2 rounded-lg shadow-md hover:bg-indigo-600 transition-colors">Upgrade
+                        to Premium</button>
+                </div>
+            </div>
+            <p id="membershipError" class="mt-4 text-center text-red-500"></p>
+            <button id="closeMembershipModal"
+                class="mt-4 w-full text-gray-500 py-2 rounded-lg hover:bg-gray-100 transition-colors">Close</button>
+        </div>
+    </div>
+
+    <!-- Saved Properties Modal -->
+    <div id="savedPropertiesModal" class="modal-container hidden">
+        <div class="bg-white p-8 rounded-xl shadow-2xl max-w-4xl w-full">
+            <h2 class="text-2xl font-bold text-gray-800 mb-6 text-center">My Saved Properties</h2>
+            <div id="savedPropertiesList" class="space-y-4 overflow-y-auto max-h-96 pr-2">
+                <!-- Saved properties will be loaded here -->
+            </div>
+            <button id="closeSavedPropertiesModal"
+                class="mt-4 w-full text-gray-500 py-2 rounded-lg hover:bg-gray-100 transition-colors">Close</button>
+        </div>
+    </div>
+
+    <!-- Detailed Analysis Modal -->
+    <div id="analysisModal" class="modal-container hidden">
+        <div class="bg-white p-8 rounded-xl shadow-2xl max-w-lg w-full">
+            <h2 class="text-2xl font-bold text-gray-800 mb-6 text-center">Detailed Cash Flow Analysis</h2>
+            <div id="analysisContent">
+                <!-- Analysis content will be dynamically generated -->
+            </div>
+            <button id="closeAnalysisModal"
+                class="mt-4 w-full text-gray-500 py-2 rounded-lg hover:bg-gray-100 transition-colors">Close</button>
+        </div>
+    </div>
+
+    <!-- Alerts Modal -->
+    <div id="alertsModal" class="modal-container hidden">
+        <div class="bg-white p-8 rounded-xl shadow-2xl max-w-md w-full">
+            <h2 class="text-2xl font-bold text-gray-800 mb-6 text-center">Set Your Property Alerts</h2>
+            <div class="space-y-4">
+                <div>
+                    <label for="alertSuburb" class="block text-sm font-medium text-gray-700">Suburb</label>
+                    <input type="text" id="alertSuburb" placeholder="e.g. Richmond"
+                        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border">
+                </div>
+                <div>
+                    <label for="alertBedrooms" class="block text-sm font-medium text-gray-700">Min. Bedrooms</label>
+                    <input type="number" id="alertBedrooms" value="3"
+                        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border">
+                </div>
+                <div>
+                    <label for="alertGearing" class="block text-sm font-medium text-gray-700">Min. Gearing
+                        ($/mo)</label>
+                    <input type="number" id="alertGearing" value="100"
+                        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border">
+                </div>
+                <button id="createAlertBtn"
+                    class="w-full bg-indigo-500 text-white font-semibold py-2 rounded-lg shadow-md hover:bg-indigo-600 transition-colors">Create
+                    Alert</button>
+            </div>
+            <p id="alertMessage" class="mt-4 text-center text-green-500 hidden"></p>
+            <button id="closeAlertsModal"
+                class="mt-4 w-full text-gray-500 py-2 rounded-lg hover:bg-gray-100 transition-colors">Close</button>
+        </div>
+    </div>
+
+    <!-- Leaflet JS for the map -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha2d-i2b6f+67B/v2y7y0+0n07j+6+g2h/s7/7n2a5j2e3g==" crossorigin=""></script>
+    <!-- Firebase Libraries -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, setDoc, collection, query, onSnapshot, getDocs, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Your web app's Firebase configuration
+        
+        // For Firebase JS SDK v7.20.0 and later, measurementId is optional
+        const firebaseConfig = {
+            apiKey: "AIzaSyCsB6txLpZyeju0D22EM9HIQul7-zX5hag",
+            authDomain: "rentflow-ca2d1.firebaseapp.com",
+            projectId: "rentflow-ca2d1",
+            storageBucket: "rentflow-ca2d1.firebasestorage.app",
+            messagingSenderId: "845839593776",
+            appId: "1:845839593776:web:598d1f52033bf8ffe018f5",
+            measurementId: "G-8WE0GW6Y4E"
+        };
+
+
+        let app, db, auth;
+        let userId = null;
+        let currentUserData = null;
+        let savedPropertiesUnsubscribe = null;
+        let isDbReady = false; // State to track DB initialization
+
+        const memberships = {
+            basic: { limit: 0, price: 0 },
+            pro: { limit: 10, price: 19.99 },
+            premium: { limit: Infinity, price: 49.99 }
+        };
+
+        const initFirebase = () => {
+            return new Promise(async (resolve, reject) => {
+                try {
+                    if (!firebaseConfig.apiKey || firebaseConfig.apiKey === "AIzaSyCsB6txLpZyeju0D22EM9HIQul7-zX5hag") {
+                        return reject('Firebase config is not set.');
+                    }
+                    app = initializeApp(firebaseConfig);
+                    auth = getAuth(app);
+                    db = getFirestore(app);
+                    console.log('Firebase services initialized.');
+                    isDbReady = true; // Mark DB as ready
+
+                    onAuthStateChanged(auth, async (user) => {
+                        if (user) {
+                            console.log('User signed in:', user.uid);
+                            userId = user.uid;
+                            await fetchUserData();
+                        } else {
+                            console.log('User signed out.');
+                            userId = null;
+                            currentUserData = null;
+                            if (savedPropertiesUnsubscribe) savedPropertiesUnsubscribe();
+                            updateUIForAuth(false);
+                        }
+                    });
+
+                    // Sign in anonymously to get a user session
+                    await signInAnonymously(auth);
+                    console.log('Signed in anonymously.');
+                    resolve();
+
+                } catch (e) {
+                    console.error("Error initializing Firebase:", e);
+                    isDbReady = false;
+                    reject(e.message);
+                }
+            });
+        };
+
+        const fetchUserData = async () => {
+            if (!isDbReady || !userId) return;
+            try {
+                const userDocRef = doc(db, "users", userId);
+                const userDocSnap = await getDoc(userDocRef);
+                if (userDocSnap.exists()) {
+                    currentUserData = userDocSnap.data();
+                    console.log('Fetched user data:', currentUserData);
+                } else {
+                    currentUserData = { email: auth.currentUser.email, membershipTier: 'basic', savedPropertyIds: [] };
+                    await setDoc(userDocRef, currentUserData);
+                }
+                updateUIForAuth(true);
+                // Listen for changes to saved properties
+                if (savedPropertiesUnsubscribe) savedPropertiesUnsubscribe();
+                const savedPropertiesRef = collection(db, "users", userId, "saved_properties");
+                savedPropertiesUnsubscribe = onSnapshot(savedPropertiesRef, (snapshot) => {
+                    currentUserData.savedPropertyIds = snapshot.docs.map(d => d.id);
+                    updateUIForAuth(true);
+                    console.log('Saved properties updated in real-time.');
+                });
+            } catch (e) {
+                console.error("Error fetching user data:", e);
+            }
+        };
+
+        const updateUIForAuth = (isLoggedIn) => {
+            const authButton = document.getElementById('authButton');
+            const membershipButton = document.getElementById('membershipButton');
+            const savedPropertiesButton = document.getElementById('savedPropertiesButton');
+            const alertsButton = document.getElementById('alertsButton');
+            const userStatus = document.getElementById('userStatus');
+
+            if (isLoggedIn && currentUserData) {
+                authButton.textContent = 'Log Out';
+                authButton.onclick = handleSignOut;
+                membershipButton.classList.remove('hidden');
+                savedPropertiesButton.classList.remove('hidden');
+                alertsButton.classList.remove('hidden');
+                userStatus.textContent = currentUserData.email || `User: ${userId.substring(0, 8)}`;
+                userStatus.classList.remove('hidden');
+
+                // Update membership button states
+                document.getElementById('proPlanBtn').disabled = currentUserData.membershipTier === 'pro';
+                document.getElementById('premiumPlanBtn').disabled = currentUserData.membershipTier === 'premium';
+                document.getElementById('basicPlanBtn').disabled = currentUserData.membershipTier === 'basic';
+
+            } else {
+                authButton.textContent = 'Log In / Sign Up';
+                authButton.onclick = () => document.getElementById('authModal').classList.remove('hidden');
+                membershipButton.classList.add('hidden');
+                savedPropertiesButton.classList.add('hidden');
+                alertsButton.classList.add('hidden');
+                userStatus.classList.add('hidden');
+            }
+        };
+
+        // --- MODAL HANDLING ---
+        const authModal = document.getElementById('authModal');
+        const membershipModal = document.getElementById('membershipModal');
+        const savedPropertiesModal = document.getElementById('savedPropertiesModal');
+        const analysisModal = document.getElementById('analysisModal');
+        const alertsModal = document.getElementById('alertsModal');
+
+        document.getElementById('closeAuthModal').onclick = () => authModal.classList.add('hidden');
+        document.getElementById('closeMembershipModal').onclick = () => membershipModal.classList.add('hidden');
+        document.getElementById('closeSavedPropertiesModal').onclick = () => savedPropertiesModal.classList.add('hidden');
+        document.getElementById('closeAnalysisModal').onclick = () => analysisModal.classList.add('hidden');
+        document.getElementById('closeAlertsModal').onclick = () => alertsModal.classList.add('hidden');
+
+        document.getElementById('membershipButton').onclick = () => membershipModal.classList.remove('hidden');
+        document.getElementById('savedPropertiesButton').onclick = async () => {
+            if (!userId) {
+                showMessage("Please log in to view your saved properties.", "bg-red-100 text-red-800");
+                return;
+            }
+            await fetchSavedProperties();
+            savedPropertiesModal.classList.remove('hidden');
+        };
+        document.getElementById('alertsButton').onclick = () => {
+            if (!userId) {
+                showMessage("Please log in to set alerts.", "bg-red-100 text-red-800");
+                return;
+            }
+            alertsModal.classList.remove('hidden');
+        };
+
+        // --- AUTH LOGIC ---
+        const handleSignUp = async () => {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const authError = document.getElementById('authError');
+            authError.textContent = '';
+
+            try {
+                const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+                const user = userCredential.user;
+                const userDocRef = doc(db, "users", user.uid);
+                await setDoc(userDocRef, { email: email, membershipTier: 'basic' });
+                authModal.classList.add('hidden');
+                showMessage("Sign up successful! Welcome.", "bg-green-100 text-green-800");
+            } catch (e) {
+                console.error("Sign up error:", e);
+                authError.textContent = `Sign up failed: ${e.message}`;
+            }
+        };
+
+        const handleSignIn = async () => {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const authError = document.getElementById('authError');
+            authError.textContent = '';
+
+            try {
+                await signInWithEmailAndPassword(auth, email, password);
+                authModal.classList.add('hidden');
+                showMessage("Login successful! Welcome back.", "bg-green-100 text-green-800");
+            } catch (e) {
+                console.error("Login error:", e);
+                authError.textContent = `Login failed: ${e.message}`;
+            }
+        };
+
+        const handleSignOut = async () => {
+            try {
+                await signOut(auth);
+                showMessage("You have been signed out.", "bg-yellow-100 text-yellow-800");
+            } catch (e) {
+                console.error("Sign out error:", e);
+            }
+        };
+
+        document.getElementById('loginButton').onclick = handleSignIn;
+        document.getElementById('signupButton').onclick = handleSignUp;
+
+        // --- MEMBERSHIP LOGIC ---
+        const updateMembership = async (newTier) => {
+            if (!userId || !isDbReady) return;
+            const userDocRef = doc(db, "users", userId);
+            try {
+                await setDoc(userDocRef, { membershipTier: newTier }, { merge: true });
+                membershipModal.classList.add('hidden');
+                showMessage(`Successfully upgraded to ${newTier} plan!`, "bg-green-100 text-green-800");
+                await fetchUserData(); // Refresh user data to update UI
+            } catch (e) {
+                console.error("Membership update error:", e);
+                const membershipError = document.getElementById('membershipError');
+                membershipError.textContent = `Upgrade failed: ${e.message}`;
+            }
+        };
+
+        document.getElementById('proPlanBtn').onclick = () => updateMembership('pro');
+        document.getElementById('premiumPlanBtn').onclick = () => updateMembership('premium');
+        document.getElementById('basicPlanBtn').onclick = () => updateMembership('basic');
+
+        // --- SAVED PROPERTIES LOGIC ---
+        const saveProperty = async (property) => {
+            if (!userId) {
+                showMessage("Please log in to save properties.", "bg-red-100 text-red-800");
+                return;
+            }
+
+            const currentTierLimit = memberships[currentUserData.membershipTier].limit;
+            if (currentTierLimit !== Infinity && currentUserData.savedPropertyIds.length >= currentTierLimit) {
+                showMessage(`Your current membership allows a maximum of ${currentTierLimit} saved properties. Upgrade to save more.`, "bg-yellow-100 text-yellow-800");
+                return;
+            }
+
+            const savedPropertiesRef = collection(db, "users", userId, "saved_properties");
+            const propertyId = property.id;
+            try {
+                const docRef = doc(savedPropertiesRef, propertyId);
+                await setDoc(docRef, property);
+                showMessage("Property saved successfully!", "bg-green-100 text-green-800");
+            } catch (e) {
+                showMessage("Error saving property. Please try again.", "bg-red-100 text-red-800");
+                console.error("Error saving property:", e);
+            }
+        };
+
+        const deleteSavedProperty = async (propertyId) => {
+            if (!userId) return;
+            try {
+                const docRef = doc(db, "users", userId, "saved_properties", propertyId);
+                await deleteDoc(docRef);
+                showMessage("Property removed.", "bg-yellow-100 text-yellow-800");
+                await fetchSavedProperties();
+            } catch (e) {
+                console.error("Error removing property:", e);
+            }
+        };
+
+        const fetchSavedProperties = async () => {
+            const listDiv = document.getElementById('savedPropertiesList');
+            listDiv.innerHTML = '<p class="text-center text-gray-500">Loading saved properties...</p>';
+            if (!userId) {
+                listDiv.innerHTML = '<p class="text-center text-gray-500">Please log in to view saved properties.</p>';
+                return;
+            }
+            try {
+                const q = query(collection(db, "users", userId, "saved_properties"));
+                const querySnapshot = await getDocs(q);
+                const properties = querySnapshot.docs.map(doc => doc.data());
+
+                if (properties.length === 0) {
+                    listDiv.innerHTML = '<p class="text-center text-gray-500">You have no saved properties yet.</p>';
+                } else {
+                    renderSavedProperties(properties);
+                }
+            } catch (e) {
+                console.error("Error fetching saved properties:", e);
+                listDiv.innerHTML = '<p class="text-center text-red-500">Error loading saved properties.</p>';
+            }
+        };
+
+        const renderSavedProperties = (properties) => {
+            const listDiv = document.getElementById('savedPropertiesList');
+            listDiv.innerHTML = '';
+            const interestRate = parseFloat(interestRateInput.value) || 6.5;
+
+            properties.forEach(property => {
+                const monthlyMortgage = calculateMortgage(property.price, interestRate);
+                const gearingText = checkPositiveGearing(property.rent, monthlyMortgage);
+                const gearingClass = gearingText.includes("Positively") ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800';
+
+                const propertyCard = `
+                    <div class="p-4 bg-gray-50 rounded-xl border border-gray-200">
+                        <div class="flex justify-between items-start">
+                            <h3 class="text-lg font-semibold text-gray-700">${property.address}</h3>
+                            <button onclick="deleteSavedProperty('${property.id}')" class="text-gray-400 hover:text-red-500 transition-colors">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                  <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm6 0a1 1 0 112 0v6a1 1 0 11-2 0V8z" clip-rule="evenodd" />
+                                </svg>
+                            </button>
+                        </div>
+                        <div class="flex items-center space-x-4 text-sm text-gray-600 mt-1">
+                            <span>${property.bedrooms} Bed</span>
+                            <span>&bull;</span>
+                            <span>${property.bathrooms} Bath</span>
+                            <span>&bull;</span>
+                            <span class="capitalize">${property.type}</span>
+                        </div>
+                        <div class="flex justify-between items-center mt-3">
+                            <div>
+                                <p class="text-xl font-bold text-gray-800">${formatCurrency(property.price)}</p>
+                                <p class="text-sm text-gray-500">Est. Rent: ${formatCurrency(property.rent)}/mo</p>
+                            </div>
+                            <span class="inline-block px-3 py-1 rounded-full text-xs font-semibold ${gearingClass}">${gearingText}</span>
+                        </div>
+                    </div>
+                `;
+                listDiv.innerHTML += propertyCard;
+            });
+        };
+
+        // --- ALERTS LOGIC ---
+        document.getElementById('createAlertBtn').onclick = () => {
+            const suburb = document.getElementById('alertSuburb').value;
+            const bedrooms = document.getElementById('alertBedrooms').value;
+            const gearing = document.getElementById('alertGearing').value;
+            const alertMessage = document.getElementById('alertMessage');
+
+            if (!suburb || !bedrooms || !gearing) {
+                alertMessage.textContent = "Please fill in all fields.";
+                alertMessage.classList.remove('hidden', 'text-green-500');
+                alertMessage.classList.add('text-red-500');
+                return;
+            }
+
+            alertMessage.textContent = `Alert created for ${suburb}!`;
+            alertMessage.classList.remove('hidden', 'text-red-500');
+            alertMessage.classList.add('text-green-500');
+            setTimeout(() => alertsModal.classList.add('hidden'), 2000);
+        };
+
+        // --- UTILITY FUNCTIONS ---
+        const showMessage = (msg, className) => {
+            const messageBox = document.getElementById('messageBox');
+            messageBox.textContent = msg;
+            messageBox.className = `mt-6 p-4 rounded-lg text-sm ${className}`;
+            messageBox.classList.remove('hidden');
+            setTimeout(() => {
+                messageBox.classList.add('hidden');
+            }, 5000);
+        };
+
+        const openAnalysisModal = (property) => {
+            const analysisContent = document.getElementById('analysisContent');
+            const interestRate = parseFloat(interestRateInput.value) || 6.5;
+
+            analysisContent.innerHTML = `
+                <div class="grid grid-cols-2 gap-4 text-sm mb-4">
+                    <div><span class="font-semibold">Property:</span> ${property.address}</div>
+                    <div><span class="font-semibold">Price:</span> ${formatCurrency(property.price)}</div>
+                    <div><span class="font-semibold">Est. Rent:</span> ${formatCurrency(property.rent)}/mo</div>
+                    <div><span class="font-semibold">Interest Rate:</span> ${interestRate}%</div>
+                </div>
+                <h3 class="text-lg font-semibold mb-2">Monthly Expenses</h3>
+                <div class="bg-gray-100 p-4 rounded-lg space-y-2 text-sm">
+                    <div class="flex justify-between items-center">
+                        <span>Mortgage:</span>
+                        <span id="calcMortgage">${formatCurrency(calculateMortgage(property.price, interestRate))}</span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <label for="calcStrata">Strata/Body Corp:</label>
+                        <input type="number" id="calcStrata" value="150" class="w-24 text-right p-1 rounded border">
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <label for="calcCouncil">Council Rates:</label>
+                        <input type="number" id="calcCouncil" value="100" class="w-24 text-right p-1 rounded border">
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <label for="calcWater">Water Rates:</label>
+                        <input type="number" id="calcWater" value="50" class="w-24 text-right p-1 rounded border">
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <label for="calcMaintenance">Maintenance:</label>
+                        <input type="number" id="calcMaintenance" value="80" class="w-24 text-right p-1 rounded border">
+                    </div>
+                    <hr class="border-gray-300">
+                    <div class="flex justify-between font-bold">
+                        <span>Total Expenses:</span>
+                        <span id="calcTotalExpenses"></span>
+                    </div>
+                </div>
+                <h3 class="text-xl font-bold mt-4 text-center">
+                    <span class="text-gray-800">Monthly Cash Flow:</span>
+                    <span id="calcCashFlow"></span>
+                </h3>
+            `;
+            analysisModal.classList.remove('hidden');
+
+            const updateCalculator = () => {
+                const mortgage = calculateMortgage(property.price, interestRate);
+                const strata = parseFloat(document.getElementById('calcStrata').value) || 0;
+                const council = parseFloat(document.getElementById('calcCouncil').value) || 0;
+                const water = parseFloat(document.getElementById('calcWater').value) || 0;
+                const maintenance = parseFloat(document.getElementById('calcMaintenance').value) || 0;
+                const totalExpenses = mortgage + strata + council + water + maintenance;
+                const cashFlow = property.rent - totalExpenses;
+
+                document.getElementById('calcTotalExpenses').textContent = formatCurrency(totalExpenses);
+                const cashFlowEl = document.getElementById('calcCashFlow');
+                cashFlowEl.textContent = `${cashFlow > 0 ? '+' : ''}${formatCurrency(cashFlow)}`;
+                cashFlowEl.className = cashFlow > 0 ? 'text-green-600' : 'text-red-600';
+            };
+
+            ['calcStrata', 'calcCouncil', 'calcWater', 'calcMaintenance'].forEach(id => {
+                document.getElementById(id).addEventListener('input', updateCalculator);
+            });
+
+            updateCalculator();
+        };
+
+        // --- MAP AND UI LOGIC ---
+        const bedroomsSelect = document.getElementById('bedrooms');
+        const bathroomsSelect = document.getElementById('bathrooms');
+        const propertyTypeSelect = document.getElementById('propertyType');
+        const interestRateInput = document.getElementById('interestRate');
+        const propertyListDiv = document.getElementById('propertyList');
+
+        const priceRangeLowSpan = document.getElementById('priceRangeLow');
+        const priceRangeHighSpan = document.getElementById('priceRangeHigh');
+        const rentRangeLowSpan = document.getElementById('rentRangeLow');
+        const rentRangeHighSpan = document.getElementById('rentRangeHigh');
+        const gearingInsightsSpan = document.getElementById('gearingInsights');
+
+        const map = L.map('map').setView([-25.2744, 133.7751], 4);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+        let propertyMarkers = [];
+        let poiMarkers = L.layerGroup().addTo(map);
+
+        const fetchProperties = (bounds) => {
+            return new Promise(resolve => {
+                setTimeout(() => {
+                    const properties = [];
+                    const numProperties = Math.floor(Math.random() * 8) + 3;
+                    for (let i = 0; i < numProperties; i++) {
+                        const lat = bounds.getSouthWest().lat + Math.random() * (bounds.getNorthEast().lat - bounds.getSouthWest().lat);
+                        const lng = bounds.getSouthWest().lng + Math.random() * (bounds.getNorthEast().lng - bounds.getSouthWest().lng);
+                        const bedrooms = Math.floor(Math.random() * 3) + 2;
+                        const bathrooms = bedrooms > 2 ? Math.floor(Math.random() * 2) + 2 : Math.floor(Math.random() * 2) + 1;
+                        const type = ["house", "apartment", "townhouse"][Math.floor(Math.random() * 3)];
+                        const basePrice = Math.floor(Math.random() * 1500000) + 800000;
+                        const price = basePrice + Math.floor(Math.random() * 200000);
+                        const rent = Math.floor(price * (0.03 + Math.random() * 0.015) / 12 / 100) * 100;
+                        properties.push({
+                            id: `prop-${i}-${Date.now()}`,
+                            address: `Simulated Property ${i}`,
+                            bedrooms: bedrooms,
+                            bathrooms: bathrooms,
+                            type: type,
+                            price: price,
+                            rent: rent,
+                            coords: { lat: lat, lng: lng },
+                            suburb: "Simulated Suburb"
+                        });
+                    }
+                    resolve(properties);
+                }, 1000);
+            });
+        };
+
+        const fetchAndDisplayPOIs = async (bounds) => {
+            if (map.getZoom() < 13) { // Only fetch POIs at a reasonable zoom level
+                poiMarkers.clearLayers();
+                return;
+            }
+            const bbox = `${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()}`;
+            const query = `
+                [out:json];
+                (
+                  node["amenity"="school"](${bbox});
+                  node["amenity"="university"](${bbox});
+                  node["amenity"="hospital"](${bbox});
+                  node["leisure"="park"](${bbox});
+                  node["railway"="station"](${bbox});
+                  node["shop"="supermarket"](${bbox});
+                  node["highway"="bus_stop"](${bbox});
+                );
+                out body;
+            `;
+            try {
+                const response = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`);
+                const data = await response.json();
+                poiMarkers.clearLayers();
+                data.elements.forEach(el => {
+                    const icon = L.divIcon({
+                        html: '📍',
+                        className: 'text-xl',
+                        iconSize: [20, 20]
+                    });
+                    L.marker([el.lat, el.lon], { icon: icon }).addTo(poiMarkers).bindPopup(el.tags.name || 'Point of Interest');
+                });
+            } catch (error) {
+                console.error("Error fetching POIs:", error);
+            }
+        };
+
+        const calculateMortgage = (principal, annualInterestRate, loanTermYears = 30) => {
+            if (principal <= 0 || annualInterestRate <= 0) return 0;
+            const monthlyRate = (annualInterestRate / 100) / 12;
+            const numberOfPayments = loanTermYears * 12;
+            const numerator = monthlyRate * Math.pow(1 + monthlyRate, numberOfPayments);
+            const denominator = Math.pow(1 + monthlyRate, numberOfPayments) - 1;
+            return (principal * numerator) / denominator;
+        };
+
+        const checkPositiveGearing = (monthlyRent, monthlyMortgage) => {
+            const difference = monthlyRent - monthlyMortgage;
+            return difference > 0 ? `Positively Geared (+$${difference.toFixed(0)}/mo)` : `Negatively Geared (-$${Math.abs(difference).toFixed(0)}/mo)`;
+        };
+
+        const formatCurrency = (number) => {
+            return new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(number);
+        };
+
+        const filterProperties = (properties) => {
+            const minBedrooms = parseInt(bedroomsSelect.value, 10);
+            const minBathrooms = parseInt(bathroomsSelect.value, 10);
+            const propertyType = propertyTypeSelect.value;
+            return properties.filter(p =>
+                (bedroomsSelect.value === 'all' || p.bedrooms >= minBedrooms) &&
+                (bathroomsSelect.value === 'all' || p.bathrooms >= minBathrooms) &&
+                (propertyType === 'all' || p.type === propertyType)
+            );
+        };
+
+        const renderProperties = (properties, interestRate) => {
+            propertyListDiv.innerHTML = '';
+            propertyMarkers.forEach(marker => map.removeLayer(marker));
+            propertyMarkers = [];
+            if (properties.length === 0) {
+                propertyListDiv.innerHTML = '<p class="text-center text-gray-500">No properties found matching your criteria.</p>';
+                return;
+            }
+            properties.forEach(property => {
+                const monthlyMortgage = calculateMortgage(property.price, interestRate);
+                const gearingText = checkPositiveGearing(property.rent, monthlyMortgage);
+                const gearingClass = gearingText.includes("Positively") ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800';
+
+                const isSaved = currentUserData?.savedPropertyIds?.includes(property.id);
+                const saveButton = `<button onclick="saveProperty(${JSON.stringify(property).replace(/"/g, "'")})" class="text-gray-400 hover:text-indigo-500 transition-colors"><svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 ${isSaved ? 'text-indigo-500' : ''}" viewBox="0 0 20 20" fill="currentColor"><path d="M5 4a2 2 0 012-2h6a2 2 0 012 2v14l-5-2.5L5 18V4z" /></svg></button>`;
+                const detailedAnalysisButton = `<button onclick="openAnalysisModal(${JSON.stringify(property).replace(/"/g, "'")})" class="mt-2 w-full bg-gray-200 text-gray-800 font-semibold py-2 rounded-lg text-sm hover:bg-gray-300 transition-colors">Detailed Analysis</button>`;
+
+                const propertyCard = `
+                    <div id="card-${property.id}" class="p-4 bg-gray-50 rounded-xl border border-gray-200 transition-shadow duration-300 hover:shadow-lg cursor-pointer">
+                        <div class="flex justify-between items-start">
+                             <h3 class="text-lg font-semibold text-gray-700">${property.address}</h3>
+                             ${saveButton}
+                        </div>
+                        <div class="flex items-center space-x-4 text-sm text-gray-600 mt-1">
+                            <span>${property.bedrooms} Bed</span> &bull; <span>${property.bathrooms} Bath</span> &bull; <span class="capitalize">${property.type}</span>
+                        </div>
+                        <div class="flex justify-between items-center mt-3">
+                            <div>
+                                <p class="text-xl font-bold text-gray-800">${formatCurrency(property.price)}</p>
+                                <p class="text-sm text-gray-500">Est. Rent: ${formatCurrency(property.rent)}/mo</p>
+                            </div>
+                            <span class="inline-block px-3 py-1 rounded-full text-xs font-semibold ${gearingClass}">${gearingText}</span>
+                        </div>
+                        ${detailedAnalysisButton}
+                    </div>
+                `;
+                propertyListDiv.innerHTML += propertyCard;
+                const marker = L.marker([property.coords.lat, property.coords.lng]).addTo(map).bindPopup(`<b>${property.address}</b><br>${formatCurrency(property.price)}`);
+                propertyMarkers.push(marker);
+            });
+        };
+
+        const renderMapAnalytics = (properties, interestRate) => {
+            if (properties.length === 0) {
+                priceRangeLowSpan.textContent = 'N/A'; priceRangeHighSpan.textContent = 'N/A';
+                rentRangeLowSpan.textContent = 'N/A'; rentRangeHighSpan.textContent = 'N/A';
+                gearingInsightsSpan.textContent = 'No data available.';
+                return;
+            }
+            const prices = properties.map(p => p.price);
+            const rents = properties.map(p => p.rent);
+            priceRangeLowSpan.textContent = formatCurrency(Math.min(...prices));
+            priceRangeHighSpan.textContent = formatCurrency(Math.max(...prices));
+            rentRangeLowSpan.textContent = formatCurrency(Math.min(...rents));
+            rentRangeHighSpan.textContent = formatCurrency(Math.max(...rents));
+
+            const positivelyGearedCount = properties.filter(p => p.rent > calculateMortgage(p.price, interestRate)).length;
+            const percentage = properties.length > 0 ? (positivelyGearedCount / properties.length * 100).toFixed(0) : 0;
+            gearingInsightsSpan.textContent = `${positivelyGearedCount} of ${properties.length} are Positively Geared (~${percentage}%)`;
+        };
+
+        const updateUI = async () => {
+            if (!isDbReady) {
+                showMessage("Database not ready. Please wait.", "bg-yellow-100 text-yellow-800");
+                return;
+            }
+            messageBox.textContent = 'Loading properties...';
+            messageBox.className = 'mt-6 p-4 rounded-lg text-sm bg-blue-100 text-blue-800';
+            messageBox.classList.remove('hidden');
+
+            const interestRate = parseFloat(interestRateInput.value) || 6.5;
+            const bounds = map.getBounds();
+            try {
+                const [allProperties] = await Promise.all([
+                    fetchProperties(bounds),
+                    fetchAndDisplayPOIs(bounds)
+                ]);
+                const filteredProperties = filterProperties(allProperties);
+                renderProperties(filteredProperties, interestRate);
+                renderMapAnalytics(filteredProperties, interestrate);
+                messageBox.classList.add('hidden');
+            } catch (error) {
+                messageBox.textContent = 'Error fetching properties. Please try again.';
+                messageBox.className = 'mt-6 p-4 rounded-lg text-sm bg-red-100 text-red-800';
+                console.error(error);
+            }
+        };
+
+        // --- Event Listeners ---
+        bedroomsSelect.addEventListener('change', updateUI);
+        bathroomsSelect.addEventListener('change', updateUI);
+        propertyTypeSelect.addEventListener('change', updateUI);
+        interestRateInput.addEventListener('input', updateUI);
+        map.on('moveend', updateUI);
+
+        // Make functions global
+        window.saveProperty = saveProperty;
+        window.deleteSavedProperty = deleteSavedProperty;
+        window.openAnalysisModal = openAnalysisModal;
+
+        // --- Initial App Load ---
+        window.onload = async () => {
+            const loadingStatus = document.getElementById('loadingStatus');
+            try {
+                await initFirebase();
+                loadingStatus.textContent = 'Loading map and properties...';
+                await updateUI();
+                document.getElementById('loadingOverlay').style.display = 'none';
+            } catch (error) {
+                loadingStatus.textContent = `Initialization failed: ${error}. Please check configuration and refresh.`;
+                loadingStatus.classList.add('text-red-500');
+            }
+        };
+
+    </script>
+</body>
+
+</html>
